@@ -27,9 +27,18 @@ interface RawRoute {
   path: string;
   line: number;
   middlewares: string[];
+  /** guards exclude the terminal handler (the last arg when it is a named reference) */
+  guards: string[];
   handlerBody: string | null;
   handlerName: string | null;
   comment: string | null;
+}
+
+/** The last positional arg is the handler unless an inline handler exists. */
+function splitGuards(middlewares: string[], handlerBody: string | null): { guards: string[]; handlerName: string | null } {
+  if (!middlewares.length) return { guards: [], handlerName: null };
+  if (handlerBody) return { guards: [...middlewares], handlerName: null };
+  return { guards: middlewares.slice(0, -1), handlerName: middlewares[middlewares.length - 1] };
 }
 
 interface MountEdge {
@@ -323,7 +332,10 @@ export function buildFileModel(
   }
 
   // --- mounts: X.use('/prefix', child) ------------------------------------
-  const useRe = /([A-Za-z_$][\w$]*)\.use\s*\(/g;
+  const useRe = /([A-Za-z_$][\w$]*)\s*\.use\s*\(/g;
+  // Config-driven mounts: X.use(item.pathProp, item.routeProp) inside
+  // forEach/for loops over `[{ path: '/x', route: Var }]` array literals.
+  const configMounts: { parent: string; pathProp: string; routeProp: string; line: number }[] = [];
   while ((m = useRe.exec(text))) {
     const parent = m[1];
     const openIdx = m.index + m[0].length - 1;
@@ -332,7 +344,15 @@ export function buildFileModel(
     const args = splitTopLevelArgs(bal.inner);
     if (args.length < 2) continue;
     const prefix = stringLiteral(args[0]);
-    if (prefix === null) continue; // app.use(middleware) — not a mount
+    if (prefix === null) {
+      // Possibly config-driven: X.use(item.path, item.route)
+      const pm = args[0].trim().match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
+      const rm = args[1].trim().match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
+      if (pm && rm && pm[1] === rm[1]) {
+        configMounts.push({ parent, pathProp: pm[2], routeProp: rm[2], line: lineOf(text, m.index) });
+      }
+      continue; // app.use(middleware) — not a mount
+    }
     for (const rest of args.slice(1)) {
       const child = identifierOf(rest);
       if (child) {
@@ -345,10 +365,28 @@ export function buildFileModel(
       }
     }
   }
+  // Resolve config-driven mounts against same-file `{ path, route }` literals.
+  for (const cm of configMounts) {
+    const litRe = new RegExp(
+      `\\{[^\\{\\}]*?${cm.pathProp}\\s*:\\s*['"\`]([^'"\`]+)['"\`]\\s*,\\s*${cm.routeProp}\\s*:\\s*([A-Za-z_$][\\w$]*)[^\\{\\}]*?\\}`,
+      "g"
+    );
+    const litReRev = new RegExp(
+      `\\{[^\\{\\}]*?${cm.routeProp}\\s*:\\s*([A-Za-z_$][\\w$]*)\\s*,\\s*${cm.pathProp}\\s*:\\s*['"\`]([^'"\`]+)['"\`][^\\{\\}]*?\\}`,
+      "g"
+    );
+    let lm: RegExpExecArray | null;
+    while ((lm = litRe.exec(text))) {
+      model.mounts.push({ parent: cm.parent, prefix: lm[1], child: lm[2], line: cm.line });
+    }
+    while ((lm = litReRev.exec(text))) {
+      model.mounts.push({ parent: cm.parent, prefix: lm[2], child: lm[1], line: cm.line });
+    }
+  }
 
   // --- routes: X.get('/path', ...) ----------------------------------------
   const routeRe = new RegExp(
-    `([A-Za-z_$][\\w$]*)\\.(${ROUTE_VERBS.join("|")})\\s*\\(`,
+    `([A-Za-z_$][\\w$]*)\\s*\\.(${ROUTE_VERBS.join("|")})\\s*\\(`,
     "g"
   );
   const consumed = new Set<number>();
@@ -388,6 +426,11 @@ export function buildFileModel(
             if (/authenticate|verify|protect|guard/i.test(mem[1])) {
               handlerName = handlerName ?? mem[1];
             }
+          } else {
+            // call expression like auth(), auth('x'), validate(...) — the
+            // callee name carries the auth signal
+            const call = a.trim().match(/^([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/);
+            if (call) middlewares.push(call[1]);
           }
         }
       }
@@ -397,20 +440,22 @@ export function buildFileModel(
       const fn = model.functions.get(handlerName.split(".")[0]);
       if (fn) handlerBody = fn;
     }
+    const split = splitGuards(middlewares, handlerBody);
     model.routes.push({
       hostVar,
       method,
       path: pathLit,
       line,
       middlewares,
+      guards: split.guards,
       handlerBody,
-      handlerName,
+      handlerName: split.handlerName ?? handlerName,
       comment: precedingComment(lines, line - 1),
     });
   }
 
   // --- chained routes: X.route('/path').get(...).post(...) -----------------
-  const chainRe = /([A-Za-z_$][\w$]*)\.route\s*\(/g;
+  const chainRe = /([A-Za-z_$][\w$]*)\s*\.route\s*\(/g;
   while ((m = chainRe.exec(text))) {
     const hostVar = m[1];
     const openIdx = m.index + m[0].length - 1;
@@ -434,21 +479,37 @@ export function buildFileModel(
       const middlewares: string[] = [];
       let handlerBody: string | null = null;
       for (const a of vargs) {
-        if (isInlineHandler(a)) handlerBody = extractHandlerBody(a);
-        else {
+        if (isInlineHandler(a)) {
+          handlerBody = extractHandlerBody(a);
+        } else {
           const id = identifierOf(a);
-          if (id) middlewares.push(id);
+          if (id) {
+            middlewares.push(id);
+          } else {
+            const mem = a.trim().match(/^([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)/);
+            if (mem) middlewares.push(mem[1]);
+            else {
+              const call = a.trim().match(/^([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\(/);
+              if (call) middlewares.push(call[1]);
+            }
+          }
         }
       }
       const line = lineOf(text, absIdx);
+      const split = splitGuards(middlewares, handlerBody);
+      // resolve named-handler bodies same-file when possible
+      if (!handlerBody && split.handlerName && model.functions.has(split.handlerName.split(".")[0])) {
+        handlerBody = model.functions.get(split.handlerName.split(".")[0]) ?? null;
+      }
       model.routes.push({
         hostVar,
         method: vm[1].toUpperCase(),
         path: pathLit,
         line,
         middlewares,
+        guards: split.guards,
         handlerBody,
-        handlerName: null,
+        handlerName: split.handlerName,
         comment: precedingComment(lines, line - 1),
       });
       // -1: vm[0] already includes '(' which vb.end-absIdx also spans
@@ -698,14 +759,15 @@ export function assembleExpressEndpoints(
       if (!model.routerVars.has(r.hostVar) && !model.appVars.has(r.hostVar)) {
         continue; // e.g. axios.get / fetch wrappers — not route definitions
       }
+      if (r.path.includes("*")) continue; // wildcard handler, not an API contract
       const mountPrefix = prefixes.get(key(model.file, r.hostVar)) ?? "";
       const fullPath = normalizePath(joinPaths(mountPrefix, r.path));
       const { present, fields } = inferBodyFields(r.handlerBody);
       const params = inferQueryParams(r.handlerBody, r.path);
       // body present inference also from method
       const wantsBody = ["POST", "PUT", "PATCH"].includes(r.method);
-      const middleNames = r.middlewares.join(" ");
-      const authHit = r.middlewares.filter((mw) => looksLikeAuthMiddleware(mw));
+      const middleNames = r.guards.join(" ");
+      const authHit = r.guards.filter((mw) => looksLikeAuthMiddleware(mw));
       const authDetected = /passport\.authenticate|express-jwt|requireAuth|verifyToken|authenticate\(/.test(
         middleNames
       );

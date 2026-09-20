@@ -93,3 +93,80 @@ module.exports = router;`,
     expect(endpoints.map((e) => e.id).sort()).toEqual(["GET /things", "POST /things"]);
   });
 });
+
+describe("express red-team patterns", () => {
+  const BOILERPLATE = new Map<string, string>([
+    ["src/app.js", `const express = require("express");
+const routes = require("./routes/v1");
+const app = express();
+app.use("/v1", routes);
+app.options("*", (req, res) => res.sendStatus(204));`],
+    ["src/routes/v1/index.js", `const express = require("express");
+const authRoute = require("./auth.route");
+const router = express.Router();
+const defaultRoutes = [{ path: "/auth", route: authRoute }];
+defaultRoutes.forEach((route) => {
+  router.use(route.path, route.route);
+});
+module.exports = router;`],
+    ["src/routes/v1/auth.route.js", `const express = require("express");
+const router = express.Router();
+router.post("/login", (req, res) => res.json({}));
+router.post("/send-verification-email", auth(), (req, res) => res.json({}));
+module.exports = router;`],
+  ]);
+
+  it("resolves config-array mounts across files", async () => {
+    const { parseExpressFiles } = await import("@/lib/sentinel/parsers/express");
+    const { endpoints } = parseExpressFiles(BOILERPLATE);
+    expect(endpoints.map((e) => e.id).sort()).toEqual([
+      "POST /v1/auth/login",
+      "POST /v1/auth/send-verification-email",
+    ]);
+  });
+
+  it("detects call-expression auth middleware and skips wildcards", async () => {
+    const { parseExpressFiles } = await import("@/lib/sentinel/parsers/express");
+    const { endpoints } = parseExpressFiles(BOILERPLATE);
+    const v = endpoints.find((e) => e.id === "POST /v1/auth/send-verification-email")!;
+    expect(v.auth.required).toBe(true);
+    expect(endpoints.some((e) => e.path.includes("*"))).toBe(false);
+  });
+
+  it("handles multi-line fluent chains", async () => {
+    const { parseExpressFiles } = await import("@/lib/sentinel/parsers/express");
+    const files = new Map<string, string>([
+      ["r.js", `const express = require("express");
+const router = express.Router();
+router
+  .route("/")
+  .post(auth("manageUsers"), (req, res) => res.status(201).end())
+  .get(auth("getUsers"), (req, res) => res.json([]));
+module.exports = router;`],
+    ]);
+    const { endpoints } = parseExpressFiles(files);
+    expect(endpoints.map((e) => e.id).sort()).toEqual(["GET /", "POST /"]);
+    expect(endpoints.every((e) => e.auth.required)).toBe(true);
+  });
+});
+
+describe("express handler vs guard", () => {
+  it("does not mistake controllers for auth guards", async () => {
+    const { parseExpressFiles } = await import("@/lib/sentinel/parsers/express");
+    const files = new Map<string, string>([
+      ["r.js", `const express = require("express");
+const router = express.Router();
+router.post("/login", validate(x.login), authController.login);
+router.get("/me", requireAuth, userController.me);
+router.get("/open", someHandler);
+module.exports = router;`],
+    ]);
+    const { endpoints } = parseExpressFiles(files);
+    const byId = Object.fromEntries(endpoints.map((e) => [e.id, e.auth.required]));
+    expect(byId).toEqual({
+      "POST /login": false,
+      "GET /me": true,
+      "GET /open": false,
+    });
+  });
+});
