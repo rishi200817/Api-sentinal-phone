@@ -1,0 +1,16 @@
+{
+  "name": "API Sentinel",
+  "short_name": "Sentinel",
+  "description": "API change intelligence and documentation synchronization.",
+  "start_url": "/mobile",
+  "display": "standalone",
+  "background_color": "#070b12",
+  "theme_color": "#070b12",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
