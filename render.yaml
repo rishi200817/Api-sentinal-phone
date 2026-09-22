@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: api-sentinel
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SENTINEL_DATA_DIR
+        value: /opt/render/project/src/data
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
+      - key: SENTINEL_LOCAL_AI_URL
+        value: http://localhost:11434
+        sync: false
+      - key: SENTINEL_LOCAL_AI_MODEL
+        value: llama3.1
+        sync: false
+      - key: SENTINEL_REMOTE_AI_URL
+        sync: false
+      - key: SENTINEL_REMOTE_AI_KEY
+        sync: false
+    disk:
+      name: sentinel-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
