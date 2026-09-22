@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { get } from "@/lib/client";
+import { useAuth } from "./auth-context";
 import { LiveDot } from "./ui";
 
 const LINKS = [
@@ -78,9 +79,40 @@ export function TopNav() {
             label={live === "live" ? "● LIVE" : live === "warn" ? "● DEGRADED" : "○ IDLE"}
           />
           <Link href="/mobile" className="btn small">Phone</Link>
+          <AuthArea />
         </div>
       </div>
     </nav>
+  );
+}
+
+function AuthArea() {
+  const { user, loading, logout } = useAuth();
+  const [busy, setBusy] = useState(false);
+  if (loading) return null;
+  if (!user) {
+    return <Link href="/login" className="btn small primary">Sign in</Link>;
+  }
+  const initial = (user.name || user.email || "?").trim().charAt(0).toUpperCase();
+  return (
+    <>
+      <span className="auth-user" title={user.email}>
+        {user.avatarUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="auth-avatar" src={user.avatarUrl} alt="" />
+        ) : (
+          <span className="auth-avatar" aria-hidden>{initial}</span>
+        )}
+        {user.name}
+      </span>
+      <button
+        className="btn small"
+        disabled={busy}
+        onClick={() => { setBusy(true); void logout(); }}
+      >
+        Log out
+      </button>
+    </>
   );
 }
 

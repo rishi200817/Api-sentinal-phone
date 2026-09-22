@@ -1,12 +1,15 @@
 import { getRepo } from "@/db/store";
 import { activeRunFor, runAnalysis } from "@/lib/sentinel/pipeline";
 import { isValidId } from "@/lib/sentinel/security/guards";
+import { getSessionUser, loginRequiredPayload } from "@/lib/sentinel/auth";
 import { fail, ok, readJson } from "../../../_util";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
+  const user = getSessionUser(req);
+  if (!user) return fail("Login required to run analyses.", 401, loginRequiredPayload());
   if (!isValidId(params.id)) return fail("Invalid repository id.", 400);
   const repo = getRepo(params.id);
   if (!repo) return fail("Repository not found.", 404);
@@ -30,7 +33,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       repoId: repo.id,
       trigger: fullRescan ? "rescan" : "manual",
       fullRescan,
-      actor: "user",
+      actor: user.email,
     });
     return ok({ run });
   }
@@ -40,7 +43,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     repoId: repo.id,
     trigger: fullRescan ? "rescan" : "manual",
     fullRescan,
-    actor: "user",
+    actor: user.email,
   }).catch(() => {
     /* errors are persisted on the run itself */
   });

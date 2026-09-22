@@ -4,12 +4,14 @@
  */
 import { getRepo } from "@/db/store";
 import { activeRunFor, runAnalysis } from "@/lib/sentinel/pipeline";
+import { getSessionUser, loginRequiredPayload } from "@/lib/sentinel/auth";
 import { fail, ok, readJson } from "../../_util";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function POST(req: Request) {
+  if (!getSessionUser(req)) return fail("Login required for demo pushes.", 401, loginRequiredPayload());
   let body: Record<string, unknown> = {};
   try {
     body = (await readJson(req)) as Record<string, unknown>;

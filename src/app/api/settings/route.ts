@@ -1,6 +1,7 @@
 import type { AppSettings } from "@/lib/sentinel/types";
 import { store } from "@/db/store";
 import { clampString } from "@/lib/sentinel/security/guards";
+import { getSessionUser, loginRequiredPayload } from "@/lib/sentinel/auth";
 import { fail, ok, readJson } from "../_util";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  if (!getSessionUser(req)) return fail("Login required to change settings.", 401, loginRequiredPayload());
   let body: Record<string, unknown>;
   try {
     body = (await readJson(req)) as Record<string, unknown>;

@@ -381,6 +381,43 @@ export interface AppSettings {
   openapiStrictness: "strict" | "standard";
 }
 
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  /** scrypt hash (absent for OAuth-only accounts). Never sent to the browser. */
+  passwordHash?: string;
+  githubId?: string;
+  avatarUrl?: string;
+  createdAt: string;
+}
+
+/** User shape safe to expose to the browser (no password hash). */
+export interface SafeUser {
+  id: string;
+  email: string;
+  name: string;
+  avatarUrl?: string;
+  providers: ("password" | "github")[];
+  createdAt: string;
+}
+
+export interface AuthSession {
+  /** sha256 hex of the opaque session token (the token itself is never stored). */
+  id: string;
+  userId: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface OAuthState {
+  state: string;
+  provider: string;
+  next: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
 export interface SentinelContext {
   repo?: Repository;
   analysis?: AnalysisRun | null;

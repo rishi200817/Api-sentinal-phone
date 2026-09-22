@@ -16,10 +16,13 @@ import type {
   AnalysisRun,
   ApiChange,
   Approval,
+  AuthSession,
+  AuthUser,
   EndpointContract,
   HistoryEvent,
   ImpactFinding,
   OpenApiVersion,
+  OAuthState,
   Repository,
   SentinelNotification,
   WebhookEvent,
@@ -60,6 +63,9 @@ interface Tables {
   approvals: Approval[];
   snapshots: RepoSnapshot[];
   settings: Record<string, string>;
+  users: AuthUser[];
+  sessions: AuthSession[];
+  oauthStates: OAuthState[];
 }
 
 const EMPTY: Tables = {
@@ -75,6 +81,9 @@ const EMPTY: Tables = {
   approvals: [],
   snapshots: [],
   settings: {},
+  users: [],
+  sessions: [],
+  oauthStates: [],
 };
 
 function dataDir(): string {
@@ -334,4 +343,78 @@ export function uid(prefix: string): string {
 
 export function nowIso(): string {
   return new Date().toISOString();
+}
+
+// ---- auth ---------------------------------------------------------------
+
+export function getUserById(id: string): AuthUser | undefined {
+  return store.all("users").find((u) => u.id === id);
+}
+
+export function getUserByEmail(email: string): AuthUser | undefined {
+  const norm = email.trim().toLowerCase();
+  return store.all("users").find((u) => u.email === norm);
+}
+
+export function getUserByGithubId(githubId: string): AuthUser | undefined {
+  return store.all("users").find((u) => u.githubId === githubId);
+}
+
+export function insertUser(u: AuthUser): AuthUser {
+  return store.insert("users", u);
+}
+
+export function linkGithub(userId: string, githubId: string, avatarUrl?: string | null) {
+  const rows = store.all("users");
+  const row = rows.find((u) => u.id === userId);
+  if (!row) return null;
+  row.githubId = githubId;
+  if (avatarUrl) row.avatarUrl = avatarUrl;
+  store.replace("users", rows);
+  return row;
+}
+
+export function insertSession(s: AuthSession): AuthSession {
+  return store.insert("sessions", s);
+}
+
+export function getSession(id: string): AuthSession | undefined {
+  return store.all("sessions").find((s) => s.id === id);
+}
+
+export function deleteSession(id: string) {
+  store.replace(
+    "sessions",
+    store.all("sessions").filter((s) => s.id !== id)
+  );
+}
+
+/** Remove expired sessions + states. Returns counts removed. */
+export function pruneAuth(nowIsoStr: string): { sessions: number; states: number } {
+  const sessions = store.all("sessions");
+  const keptSessions = sessions.filter((s) => s.expiresAt > nowIsoStr);
+  const states = store.all("oauthStates");
+  const keptStates = states.filter((s) => s.expiresAt > nowIsoStr);
+  store.replace("sessions", keptSessions);
+  store.replace("oauthStates", keptStates);
+  return {
+    sessions: sessions.length - keptSessions.length,
+    states: states.length - keptStates.length,
+  };
+}
+
+export function insertOAuthState(s: OAuthState): OAuthState {
+  return store.insert("oauthStates", s);
+}
+
+/** One-time lookup: returns the state only if present and unexpired, then deletes it. */
+export function consumeOAuthState(state: string, nowIsoStr: string): OAuthState | null {
+  const rows = store.all("oauthStates");
+  const found = rows.find((s) => s.state === state);
+  store.replace(
+    "oauthStates",
+    rows.filter((s) => s.state !== state)
+  );
+  if (!found || found.expiresAt <= nowIsoStr) return null;
+  return found;
 }

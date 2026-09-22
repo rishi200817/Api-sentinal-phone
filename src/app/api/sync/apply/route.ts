@@ -1,10 +1,13 @@
 import { getRepo } from "@/db/store";
 import { applySync } from "@/lib/sentinel/pipeline";
+import { getSessionUser, loginRequiredPayload } from "@/lib/sentinel/auth";
 import { fail, ok, readJson } from "../../_util";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const user = getSessionUser(req);
+  if (!user) return fail("Login required to publish documentation.", 401, loginRequiredPayload());
   let body: Record<string, unknown>;
   try {
     body = (await readJson(req)) as Record<string, unknown>;
@@ -21,7 +24,7 @@ export async function POST(req: Request) {
   if (!changeIds.length) return fail("No changes selected.", 400);
   if (!confirm) return fail("Sync requires explicit confirmation (confirm: true).", 400);
   try {
-    const result = await applySync(repoId, changeIds, allowDelete, "user");
+    const result = await applySync(repoId, changeIds, allowDelete, user.email);
     return ok(result);
   } catch (err) {
     return fail(err instanceof Error ? err.message : "Sync failed.", 422);

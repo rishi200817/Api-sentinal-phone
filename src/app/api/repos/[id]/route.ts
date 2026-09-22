@@ -1,5 +1,6 @@
 import { getRepo, saveRepo, store } from "@/db/store";
 import { clampString, isValidId } from "@/lib/sentinel/security/guards";
+import { getSessionUser, loginRequiredPayload } from "@/lib/sentinel/auth";
 import { fail, ok, readJson } from "../../_util";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+  if (!getSessionUser(req)) return fail("Login required to edit repositories.", 401, loginRequiredPayload());
   if (!isValidId(params.id)) return fail("Invalid repository id.", 400);
   const repo = getRepo(params.id);
   if (!repo) return fail("Repository not found.", 404);
@@ -38,7 +40,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   return ok({ repo });
 }
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  if (!getSessionUser(req)) return fail("Login required to remove repositories.", 401, loginRequiredPayload());
   if (!isValidId(params.id)) return fail("Invalid repository id.", 400);
   const repo = getRepo(params.id);
   if (!repo) return fail("Repository not found.", 404);

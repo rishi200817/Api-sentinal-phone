@@ -223,9 +223,36 @@ Otherwise it says plainly that vision is unavailable — never a fake analysis.
 | `SENTINEL_REMOTE_AI_KEY` | Remote API key (optional) |
 | `SENTINEL_REMOTE_AI_MODEL` | Remote model (default `gpt-4o-mini`) |
 | `SENTINEL_AI_PROVIDER` | `auto`/`local`/`remote`/`deterministic` |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth login (optional; UI shows “not configured” without them) |
 
 Settings UI mirrors these; secrets are write-only (set/not-set shown, values never
 returned).
+
+## Authentication
+
+Two providers, one session system:
+
+- **Email + password** (`/signup`, `/login`) — passwords are salted scrypt
+  hashes (never stored or logged in plain text); login failures take the same
+  time whether or not the email exists, so accounts can't be enumerated.
+- **GitHub OAuth** (“Continue with GitHub”) — standard authorization-code flow
+  with single-use, 10-minute `state`. Accounts link automatically when GitHub
+  confirms a verified email match; otherwise the login stops with a clear
+  message instead of merging accounts.
+
+Sessions are opaque 256-bit tokens in an `httpOnly`, `SameSite=Lax` cookie
+(`Secure` on https); only the token's sha256 is stored, sessions expire after
+30 days, and login/signup are rate-limited per IP. Viewing (dashboards, docs,
+Ask) stays public; **writes require login** — connecting/editing repos, running
+analyses, approvals, doc syncs, settings, notifications, and demo actions.
+The GitHub webhook stays public by necessity and is protected by its HMAC
+signature instead. Authenticated actions record your email as the audit actor.
+
+To enable GitHub login: create an OAuth App at
+github.com → Settings → Developer settings (callback URL
+`<your-origin>/api/auth/github/callback`, e.g.
+`http://localhost:3000/api/auth/github/callback`), then set
+`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` and restart.
 
 ## Local setup
 
@@ -241,7 +268,7 @@ Open `/demo` for the guided script, `/mobile` for the phone experience.
 
 No external database required. The embedded store (`SENTINEL_DATA_DIR/sentinel.json`)
 persists repositories, runs, changes, endpoints, OpenAPI versions, impact, webhooks,
-notifications, history, approvals, and snapshots with atomic writes. For Postgres,
+notifications, history, approvals, snapshots, users, sessions, and OAuth states with atomic writes. For Postgres,
 implement the `store.ts` interface — engine and routes are storage-agnostic.
 
 ## Deployment

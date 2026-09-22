@@ -1,6 +1,27 @@
 /** Typed browser client for the Sentinel API. */
 "use client";
 
+export class ApiError extends Error {
+  status: number;
+  loginRequired: boolean;
+  constructor(message: string, status: number, loginRequired: boolean) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.loginRequired = loginRequired;
+  }
+}
+
+function maybeRedirectToLogin(path: string, loginRequired: boolean) {
+  if (!loginRequired || typeof window === "undefined") return;
+  // Never redirect auth calls or auth pages (the forms handle errors inline).
+  if (path.startsWith("/api/auth/")) return;
+  const here = window.location.pathname;
+  if (here === "/login" || here === "/signup") return;
+  const next = encodeURIComponent(here + window.location.search);
+  window.location.href = `/login?next=${next}`;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -10,9 +31,12 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     ok?: boolean;
     data?: T;
     error?: string;
+    loginRequired?: boolean;
   };
   if (!res.ok || json.ok === false) {
-    throw new Error(json.error || `Request failed (${res.status}).`);
+    const loginRequired = res.status === 401 && json.loginRequired === true;
+    maybeRedirectToLogin(path, loginRequired);
+    throw new ApiError(json.error || `Request failed (${res.status}).`, res.status, loginRequired);
   }
   return json.data as T;
 }

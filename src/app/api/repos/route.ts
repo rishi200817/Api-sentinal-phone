@@ -2,6 +2,7 @@ import { getRepo, listRepos, nowIso, saveRepo, store, uid } from "@/db/store";
 import { log } from "@/lib/sentinel/logging";
 import { getRepoInfo, resolveGitHubToken } from "@/lib/sentinel/git/github";
 import { parseGitHubRepoUrl, clampString } from "@/lib/sentinel/security/guards";
+import { getSessionUser, loginRequiredPayload } from "@/lib/sentinel/auth";
 import { fail, ok, readJson } from "../_util";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  if (!getSessionUser(req)) return fail("Login required to connect repositories.", 401, loginRequiredPayload());
   let body: Record<string, unknown>;
   try {
     body = (await readJson(req)) as Record<string, unknown>;

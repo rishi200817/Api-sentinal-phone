@@ -1,6 +1,7 @@
 import { addHistory, getRepo, nowIso, store, uid } from "@/db/store";
 import { applySync } from "@/lib/sentinel/pipeline";
 import { isValidId } from "@/lib/sentinel/security/guards";
+import { getSessionUser, loginRequiredPayload } from "@/lib/sentinel/auth";
 import { fail, ok, readJson } from "../../_util";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 }
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
+  const user = getSessionUser(req);
+  if (!user) return fail("Login required to decide approvals.", 401, loginRequiredPayload());
   if (!isValidId(params.id)) return fail("Invalid approval id.", 400);
   const approval = store.all("approvals").find((a) => a.id === params.id);
   if (!approval) return fail("Approval not found.", 404);
@@ -40,7 +43,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       repoId: repo.id,
       analysisId: approval.analysisId,
       kind: "approval-rejected",
-      actor: "user",
+      actor: user.email,
       message: `Sync approval rejected (${approval.changeIds.length} changes). Nothing published.`,
       createdAt: nowIso(),
     });
@@ -48,7 +51,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   try {
-    const result = await applySync(approval.repoId, approval.changeIds, allowDelete, "user");
+    const result = await applySync(approval.repoId, approval.changeIds, allowDelete, user.email);
     return ok({ version: result.version, validation: result.validation });
   } catch (err) {
     return fail(err instanceof Error ? err.message : "Approval failed.", 422);

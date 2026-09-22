@@ -1,4 +1,5 @@
 import { listNotifications, store } from "@/db/store";
+import { getSessionUser, loginRequiredPayload } from "@/lib/sentinel/auth";
 import { fail, ok, readJson } from "../_util";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
+  if (!getSessionUser(req)) return fail("Login required to update notifications.", 401, loginRequiredPayload());
   let body: Record<string, unknown>;
   try {
     body = (await readJson(req)) as Record<string, unknown>;

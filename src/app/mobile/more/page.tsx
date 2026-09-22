@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { get, post } from "@/lib/client";
 import { useRepos } from "@/components/repo-context";
+import { useAuth } from "@/components/auth-context";
 import { Badge, Empty, MethodTag, Spinner } from "@/components/ui";
 
 function MoreInner() {
@@ -12,6 +13,7 @@ function MoreInner() {
   const [eps, setEps] = useState<{ id: string; method: string; path: string }[]>([]);
   const [approvals, setApprovals] = useState<{ id: string; changeIds: string[] }[]>([]);
   const [msg, setMsg] = useState("");
+  const { user, logout } = useAuth();
 
   const load = useCallback(async () => {
     if (!selectedId) return;
@@ -44,6 +46,24 @@ function MoreInner() {
         {selected && <span className="muted mono" style={{ fontSize: 12 }}>{selected.name}</span>}
       </div>
       {msg && <div className="alert cyan">{msg}</div>}
+
+      <div className="sheet">
+        <strong style={{ fontSize: 13 }}>ACCOUNT</strong>
+        {user ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 8 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{user.name}</div>
+              <div className="muted" style={{ fontSize: 12 }}>{user.email}</div>
+            </div>
+            <button className="btn small" onClick={() => void logout()}>Log out</button>
+          </div>
+        ) : (
+          <div style={{ marginTop: 8 }}>
+            <p className="muted" style={{ fontSize: 13 }}>Log in to approve, sync, and scan.</p>
+            <Link className="btn small primary" href="/login?next=/mobile/more">Sign in</Link>
+          </div>
+        )}
+      </div>
 
       <div className="sheet">
         <strong style={{ fontSize: 13 }}>APPROVALS {approvals.length > 0 && <Badge tone="amber">{approvals.length} pending</Badge>}</strong>
